@@ -7,6 +7,7 @@ before_script:
   - virtualenv -p python3.7 venv
   - source venv/bin/activate
   - pip install --use-feature 2020-resolver -r requirements.txt
+  - pip uninstall calamari-ocr
   - python setup.py install
 
 cache:
@@ -37,6 +38,7 @@ install_dependencies:
     - virtualenv -p python3.7 venv
     - source venv/bin/activate
     - pip install --use-feature 2020-resolver -r requirements.txt
+    - pip uninstall calamari-ocr
     - python setup.py install
     - wget -q -O - https://github.com/Calamari-OCR/calamari_models/archive/1.0.tar.gz | tar xz && mv calamari_models-1.0 calamari_models
 
