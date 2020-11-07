@@ -212,6 +212,7 @@ def run(args):
                     setattr(args, key, value)
 
     if args.output_dir is not None:
+        args.output_dir = os.path.abspath(args.output_dir)
         setup_log(args.output_dir, append=False)
 
     # parse whitelist
