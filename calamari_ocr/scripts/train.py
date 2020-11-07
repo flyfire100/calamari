@@ -1,6 +1,7 @@
 import argparse
 import os
 import json
+from tfaip.util.logging import setup_log
 
 from calamari_ocr.ocr.augmentation.dataaugmentationparams import DataAugmentationAmount
 
@@ -66,7 +67,7 @@ def setup_train_args(parser, omit=None):
     parser.add_argument("--samples_per_epoch", type=int, default=100,
                         help="The number of samples to process per epoch"
                         )
-    parser.add_argument("--early_stopping_at_accuracy", type=float, default=0,
+    parser.add_argument("--early_stopping_at_accuracy", type=float, default=1.0,
                         help="Stop training if the early stopping accuracy reaches this value")
     parser.add_argument("--stats_size", type=int, default=100,
                         help="Average this many iterations for computing an average loss, label error rate and "
@@ -121,12 +122,8 @@ def setup_train_args(parser, omit=None):
                         help='Instead of preloading all data during the training, load the data on the fly. '
                              'This is slower, but might be required for limited RAM or large datasets')
 
-    parser.add_argument("--early_stopping_frequency", type=float, default=-1,
-                        help="The frequency of early stopping. By default the checkpoint frequency uses the early "
-                             "stopping frequency. By default (negative value) the early stopping frequency is "
-                             "approximated as a half epoch time (if the batch size is 1). "
-                             "If 0 < value <= 1 the frequency has the unit of an epoch (relative to the "
-                             "number of training data).")
+    parser.add_argument("--early_stopping_frequency", type=int, default=1,
+                        help="The frequency of early stopping [epochs].")
     parser.add_argument("--early_stopping_nbest", type=int, default=5,
                         help="The number of models that must be worse than the current best model to stop")
     if "early_stopping_best_model_prefix" not in omit:
@@ -148,9 +145,6 @@ def setup_train_args(parser, omit=None):
                         help="Tensorflow's session inter threads param")
     parser.add_argument("--num_intra_threads", type=int, default=0,
                         help="Tensorflow's session intra threads param")
-    parser.add_argument("--shuffle_buffer_size", type=int, default=1000,
-                        help="Number of examples in the shuffle buffer for training (default 1000). A higher number "
-                             "required more memory. If set to 0, the buffer size equates an epoch i.e. the full dataset")
 
     # text normalization/regularization
     parser.add_argument("--text_regularization", type=str, nargs="+", default=["extended"],
@@ -164,7 +158,6 @@ def setup_train_args(parser, omit=None):
     # text/line generation params (loaded from json files)
     parser.add_argument("--text_generator_params", type=str, default=None)
     parser.add_argument("--line_generator_params", type=str, default=None)
-
 
     # additional dataset args
     parser.add_argument("--dataset_pad", default=None, nargs='+', type=int)
@@ -218,6 +211,9 @@ def run(args):
                 else:
                     setattr(args, key, value)
 
+    if args.output_dir is not None:
+        setup_log(args.output_dir, append=False)
+
     # parse whitelist
     whitelist = args.whitelist
     if len(whitelist) == 1:
@@ -253,7 +249,7 @@ def run(args):
         text_index=args.pagexml_text_index,
     )
 
-    params = CalamariScenario.trainer_cls().get_params_cls()()
+    params: TrainerParams = CalamariScenario.trainer_cls().get_params_cls()()
     params.scenario_params = CalamariScenario.default_params()
 
     # =================================================================================================================
@@ -296,27 +292,26 @@ def run(args):
     params.epochs = args.epochs
     params.samples_per_epoch = args.samples_per_epoch
     params.stats_size = args.stats_size
+    params.skip_load_model_test = True
+    params.scenario_params.export_frozen = False
     params.scenario_params.data_params.train_batch_size = args.batch_size
     params.scenario_params.data_params.val_batch_size = args.batch_size
     # TODO: params.checkpoint_frequency = args.checkpoint_frequency if args.checkpoint_frequency >= 0 else args.early_stopping_frequency
     params.checkpoint_dir = args.output_dir
-    # TODO (instead of 'best'?): params.output_model_prefix = args.output_model_prefix
     params.test_every_n = args.display
     params.skip_invalid_gt = not args.no_skip_invalid_gt
     params.scenario_params.data_params.train_num_processes = args.num_threads
     params.scenario_params.data_params.val_num_processes = args.num_threads
     params.data_aug_retrain_on_original = not args.only_train_on_augmented
 
-    # params.early_stopping_at_acc = args.early_stopping_at_accuracy
-    # params.early_stopping_frequency = args.early_stopping_frequency
-    # params.early_stopping_nbest = args.early_stopping_nbest
-    # params.early_stopping_best_model_prefix = args.early_stopping_best_model_prefix
-    # params.early_stopping_best_model_output_dir = \
-    #    args.early_stopping_best_model_output_dir if args.early_stopping_best_model_output_dir else args.output_dir
-
-
+    params.early_stopping_params.frequency = args.early_stopping_frequency
+    params.early_stopping_params.upper_threshold = 0.9
+    params.early_stopping_params.lower_threshold = 1.0 - args.early_stopping_at_accuracy
+    params.early_stopping_params.n_to_go = args.early_stopping_nbest
+    params.early_stopping_params.best_model_name = args.early_stopping_best_model_prefix
+    params.early_stopping_params.best_model_output_dir = args.early_stopping_best_model_output_dir
     if args.seed > 0:
-        params.model.network.backend.random_seed = args.seed
+        params.random_seed = args.seed
 
     if args.bidi_dir:
         params.scenario_params.data_params.text_processor.sub_processors.append(BidiTextProcessor(args.bidi_dir))
@@ -328,7 +323,6 @@ def run(args):
     params.optimizer_params.clip_grad = args.gradient_clipping_norm
     # params.model.network.backend.num_inter_threads = args.num_inter_threads
     # params.model.network.backend.num_intra_threads = args.num_intra_threads
-    # params.model.network.backend.shuffle_buffer_size = args.shuffle_buffer_size
     params.codec_whitelist = whitelist
     params.keep_loaded_codec = args.keep_loaded_codec
     params.preload_training = not args.train_data_on_the_fly

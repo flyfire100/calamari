@@ -35,8 +35,7 @@ def params_from_definition_string(s: str, trainer_params: TrainerParams):
         elif label == "l_rate" or label == 'learning_rate':
             trainer_params.learning_rate_params.lr = float(value)
         elif label == "momentum":
-            # TODO: momentum
-            pass
+            trainer_params.optimizer_params.momentum = float(value)
         elif label == 'dropout':
             trainer_params.scenario_params.model_params.dropout = float(value)
         elif label == "solver":
