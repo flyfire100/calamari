@@ -287,7 +287,7 @@ def run(args):
 
     # =================================================================================================================
     # TODO: ORDER
-    params.device_params.gpus = list(map(int, os.environ.get("CUDA_VISIBLE_DEVICES", '').split(',')))
+    params.device_params.gpus = list(map(int, filter(lambda x: len(x) > 0, os.environ.get("CUDA_VISIBLE_DEVICES", '').split(','))))
     params.force_eager = args.debug
     params.scenario_params.debug_graph_construction = args.debug
     params.epochs = args.epochs
