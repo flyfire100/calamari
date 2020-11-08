@@ -122,13 +122,11 @@ class FileDataReader(DataReader):
             else:
                 raise Exception("Image file at '{}' does not exist".format(image_path))
 
-        i = Image.open(image_path)
-        try:
-            i.load()
-            img = np.array(i)
-        except:
-            return None
-        finally:
-            i.close()
+        with Image.open(image_path) as i:
+            try:
+                i.load()
+                img = np.array(i)
+            except:
+                return None
 
         return img
