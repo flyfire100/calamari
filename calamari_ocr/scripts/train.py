@@ -58,9 +58,9 @@ def setup_train_args(parser, omit=None):
                         help="Frequency of how often an output shall occur during training [epochs]")
     parser.add_argument("--batch_size", type=int, default=1,
                         help="The batch size to use for training")
-    parser.add_argument("--checkpoint_frequency", type=int, default=-1,
+    parser.add_argument("--checkpoint_frequency", type=int, default=0,
                         help="The frequency how often to write checkpoints during training [epochs]"
-                             "If -1, the early_stopping_frequency will be used.")
+                             "If -1, the early_stopping_frequency will be used. default (0) no checkpoints are written")
     parser.add_argument("--epochs", type=int, default=100,
                         help="The number of iterations for training. "
                              "If using early stopping, this is the maximum number of iterations")
@@ -173,7 +173,9 @@ def run(args):
         with open(args.files[0], 'r') as f:
             json_args = json.load(f)
             for key, value in json_args.items():
-                if key == 'dataset' or key == 'validation_dataset':
+                if key == 'data_preprocessing':
+                    setattr(args, key, list(DataPreprocessors(s) for s in value))
+                elif key == 'dataset' or key == 'validation_dataset':
                     setattr(args, key, DataSetType.from_string(value))
                 else:
                     setattr(args, key, value)
@@ -217,8 +219,7 @@ def run(args):
         text_index=args.pagexml_text_index,
     )
 
-    params: TrainerParams = CalamariScenario.trainer_cls().get_params_cls()()
-    params.scenario_params = CalamariScenario.default_params()
+    params: TrainerParams = CalamariScenario.default_trainer_params()
 
     # =================================================================================================================
     # Data Params
@@ -253,6 +254,7 @@ def run(args):
     # TODO: ORDER
     params.device_params.gpus = list(map(int, filter(lambda x: len(x) > 0, os.environ.get("CUDA_VISIBLE_DEVICES", '').split(','))))
     params.force_eager = args.debug
+    params.skip_model_load_test = not args.debug
     params.scenario_params.debug_graph_construction = args.debug
     params.epochs = args.epochs
     params.samples_per_epoch = args.samples_per_epoch
@@ -261,7 +263,7 @@ def run(args):
     params.scenario_params.export_frozen = False
     params.scenario_params.data_params.train_batch_size = args.batch_size
     params.scenario_params.data_params.val_batch_size = args.batch_size
-    # TODO: params.checkpoint_frequency = args.checkpoint_frequency if args.checkpoint_frequency >= 0 else args.early_stopping_frequency
+    params.checkpoint_save_freq_ = args.checkpoint_frequency if args.checkpoint_frequency >= 0 else args.early_stopping_frequency
     params.checkpoint_dir = args.output_dir
     params.test_every_n = args.display
     params.skip_invalid_gt = not args.no_skip_invalid_gt
@@ -273,8 +275,10 @@ def run(args):
     params.early_stopping_params.upper_threshold = 0.9
     params.early_stopping_params.lower_threshold = 1.0 - args.early_stopping_at_accuracy
     params.early_stopping_params.n_to_go = args.early_stopping_nbest
-    params.early_stopping_params.best_model_name = args.early_stopping_best_model_prefix
+    params.early_stopping_params.best_model_name = ''
     params.early_stopping_params.best_model_output_dir = args.early_stopping_best_model_output_dir
+    params.scenario_params.default_serve_dir_ = f'{args.early_stopping_best_model_prefix}.ckpt.h5'
+    params.scenario_params.trainer_params_filename_ = f'{args.early_stopping_best_model_prefix}.ckpt.json'
     if args.seed > 0:
         params.random_seed = args.seed
 

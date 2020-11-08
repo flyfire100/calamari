@@ -36,8 +36,7 @@ def default_data_preprocessors() -> List[DataPreprocessors]:
 def data_processor_from_list(line_height: int, pad: int, processors: List[DataPreprocessors] = None) -> DataPreprocessor:
     if processors is None:
         processors = default_data_preprocessors()
-    else:
-        processors = [data_processor_cls(p.value) for p in processors]
+    processors = [data_processor_cls(p.value) for p in processors]
 
     mp = MultiDataProcessor()
     for p in processors:

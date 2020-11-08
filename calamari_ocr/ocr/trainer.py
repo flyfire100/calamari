@@ -1,4 +1,5 @@
 import copy
+from typing import Type
 
 from tfaip.base.trainer import Trainer
 from calamari_ocr.ocr import Codec, Checkpoint, DataSetMode
@@ -8,10 +9,14 @@ import time
 
 from calamari_ocr.utils import checkpoint_path
 
-from calamari_ocr.ocr.backends.dataset.data import CalamariDataParams, CalamariData
+from calamari_ocr.ocr.backends.dataset.data import CalamariData
 
 
 class CalamariTrainer(Trainer):
+    @staticmethod
+    def get_params_cls() -> Type[TrainerParams]:
+        return TrainerParams
+
     def __init__(self, params: TrainerParams, scenario, restore=False):
         """Train a DNN using given preprocessing, weights, and data
 
@@ -30,7 +35,13 @@ class CalamariTrainer(Trainer):
         """
         super(CalamariTrainer, self).__init__(params, scenario, restore)
         self._params: TrainerParams = params
+        if self._params.checkpoint_save_freq_ < 0:
+            self._params.checkpoint_save_freq_ = self._params.early_stopping_params.frequency
         self._params.warmstart_params.model = checkpoint_path(self._params.warmstart_params.model) if self._params.warmstart_params.model else None
+        self.checkpoint = None
+        if self._params.warmstart_params.model:
+            self.checkpoint = Checkpoint(self._params.warmstart_params.model)
+            self._params.warmstart_params.model = self.checkpoint.ckpt_path + '.h5'
         if not self._params.scenario_params.data_params.train_reader:
             raise ValueError("Training data factory was not provided")
 

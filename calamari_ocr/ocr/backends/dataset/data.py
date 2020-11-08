@@ -10,6 +10,7 @@ import logging
 from tfaip.base.data.data import DataBase
 
 from calamari_ocr.ocr.backends.dataset.datareader.factory import FileDataReaderFactory, RawDataReaderFactory
+from calamari_ocr.ocr.data_processing import data_processor_from_list
 from calamari_ocr.utils.multiprocessing import tqdm_wrapper
 from calamari_ocr.ocr.augmentation.dataaugmentationparams import DataAugmentationAmount
 from calamari_ocr.ocr.datasets.datasetype import DataSetMode, DataSetType
@@ -186,7 +187,6 @@ class CalamariData(DataBase):
 
 if __name__ == '__main__':
     from calamari_ocr.ocr import Codec
-    from calamari_ocr.ocr.data_processing import data_processor_from_proto
     from calamari_ocr.ocr.text_processing import text_processor_from_proto
 
     this_dir = os.path.dirname(os.path.realpath(__file__))
@@ -199,19 +199,17 @@ if __name__ == '__main__':
     checkpoint_params.model.data_preprocessor.line_height = 64
     txt_preproc = text_processor_from_proto(
         checkpoint_params.model.text_preprocessor, "pre")
-    data_preproc = data_processor_from_proto(
-        checkpoint_params.model.data_preprocessor)
     params = CalamariDataParams(
         codec=Codec('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:;-?+=_()*{}[]`@#$%^&\'"'),
         downscale_factor_=8,
         line_height_=checkpoint_params.model.data_preprocessor.line_height,
         text_processor=txt_preproc,
-        data_processor=data_preproc,
+        data_processor=data_processor_from_list(64, 0),
         data_aug_params=DataAugmentationAmount(),
         train_reader=fdr,
         val_reader=fdr,
         predict_reader=fdr,
-        input_channels_=1,
+        input_channels=1,
     )
     params = CalamariDataParams.from_json(params.to_json())
     print(params.to_json(indent=2))

@@ -26,8 +26,11 @@ class DataReaderFactory(ABC):
 
     @classmethod
     def from_dict(cls, d) -> 'DataReaderFactory':
-        df_cls = DataReaderFactory.factories[d['type']]
-        return df_cls(**d['params'])
+        if 'type' in d:
+            df_cls = DataReaderFactory.factories[d['type']]
+            return df_cls.from_dict(d['params'])
+
+        return cls(**d)
 
     def to_dict(self):
         return {
@@ -81,8 +84,7 @@ class FileDataReaderFactory(DataReaderFactory):
     def from_dict(cls, d):
         if d['data_reader_args']:
             d['data_reader_args'] = FileDataReaderArgs.from_dict(d['data_reader_args'])
-        super(FileDataReaderFactory, cls).from_dict(d)
-
+        return super(FileDataReaderFactory, cls).from_dict(d)
 
     def __init__(self,
                  data_set_type: DataSetType,

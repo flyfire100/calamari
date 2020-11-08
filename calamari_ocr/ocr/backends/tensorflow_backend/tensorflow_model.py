@@ -45,8 +45,8 @@ class CalamariGraph(GraphBase):
     def params_cls(cls):
         return ModelParams
 
-    def __init__(self, params: ModelParams):
-        super(CalamariGraph, self).__init__(params)
+    def __init__(self, params: ModelParams, name='CalamariGraph', **kwargs):
+        super(CalamariGraph, self).__init__(params, name=name, **kwargs)
 
         self.conv_layers: List[Tuple[LayerParams, tf.keras.layers.Layer]] = []
         self.lstm_layers: List[Tuple[LayerParams, tf.keras.layers.Layer]] = []
@@ -100,7 +100,7 @@ class CalamariGraph(GraphBase):
                 raise Exception("Unknown layer of type %s" % layer.type)
 
         for layer_index, layer in enumerate([l for l in params.layers if l.type == LayerType.LSTM]):
-            self.lstm_layers.append((layer, KL.Bidirectional(KL.LSTM(
+            lstm = KL.LSTM(
                 units=layer.hidden_nodes,
                 activation='tanh',
                 recurrent_activation='sigmoid',
@@ -109,7 +109,11 @@ class CalamariGraph(GraphBase):
                 use_bias=True,
                 return_sequences=True,
                 unit_forget_bias=True,
-            ),
+                name=f'lstm_{layer_index}'
+            )
+            self.lstm_layers.append((layer, KL.Bidirectional(
+                lstm,
+                name='bidirectional',
                 merge_mode='concat',
             )))
 
@@ -189,6 +193,10 @@ class CalamariModel(ModelBase):
     @staticmethod
     def get_params_cls() -> Type[ModelBaseParams]:
         return ModelParams
+
+    @classmethod
+    def _get_additional_layers(cls) -> List[Type[tf.keras.layers.Layer]]:
+        return [CalamariGraph]
 
     def __init__(self, params: ModelParams):
         super(CalamariModel, self).__init__(params)
