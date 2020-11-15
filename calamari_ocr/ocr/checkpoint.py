@@ -51,6 +51,7 @@ class Checkpoint:
                 "Due to a update to tensorflow 2.0, the weights can not be converted yet. A retraining is required.")
         elif self.version == 2:
             # Calamari 1.3 -> Calamari 2.0
+            raise NotImplementedError
 
         self.version += 1
         self._update_json_version()
