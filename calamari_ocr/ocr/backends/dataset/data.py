@@ -3,7 +3,9 @@ from typing import Callable
 
 from tfaip.base.data.pipeline.base import BasePipeline
 from tfaip.base.data.pipeline.dataprocessor import DataProcessorFactory
-from tfaip.base.data.pipeline.definitions import PipelineMode, BasePipelineParams, DataProcessorFactoryParams
+from tfaip.base.data.pipeline.definitions import PipelineMode, BasePipelineParams, DataProcessorFactoryParams, \
+    InputTargetSample
+from tfaip.base.data.pipeline.pypipeline import RawPythonPipeline
 from typeguard import typechecked
 import tensorflow as tf
 import logging
@@ -37,6 +39,15 @@ class CalamariData(DataBase):
         from calamari_ocr.ocr.backends.dataset.pipeline import CalamariPipeline
         return CalamariPipeline
 
+        def create(data, mode, params) -> BasePipeline:
+            if params.type == DataSetType.RAW:
+                images = params.files or [None] * len(params.text_files)
+                gts = params.text_files or [None] * len(params.files)
+                return RawPythonPipeline([InputTargetSample(i, g) for i, g in zip(images, gts)], data, mode, params)
+            else:
+                return CalamariPipeline(data, mode, params)
+        return create
+
     @classmethod
     def data_processor_factory(cls) -> DataProcessorFactory:
         return DataProcessorFactory([
@@ -64,7 +75,6 @@ class CalamariData(DataBase):
 
     def _input_layer_specs(self):
         return {
-            'meta': tf.TensorSpec([], dtype=tf.string),
             'img': tf.TensorSpec([None, self._params.line_height_, self._params.input_channels], dtype=tf.float32),
             'img_len': tf.TensorSpec([], dtype=tf.int32),
                 }

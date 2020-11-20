@@ -7,8 +7,8 @@ from tfaip.util.multiprocessing.parallelmap import tqdm_wrapper, parallel_map
 
 from calamari_ocr.ocr.augmentation.dataaugmentationparams import DataAugmentationAmount, DataAugmentationAmountReference
 from tfaip.base.data.pipeline.definitions import InputTargetSample, PipelineMode
-from tfaip.base.data.pipeline.pypipeline import PythonPipeline, RawPythonPipeline, DirectProcPythonPipeline, \
-    MultiProcPythonPipeline
+from tfaip.base.data.pipeline.pypipeline import RawPythonPipeline, MultiPreProcPythonPipeline, \
+    DirectPreProcPythonPipeline, DirectProcPythonPipeline
 
 from calamari_ocr.ocr.backends.dataset.data_types import CalamariPipelineParams, CalamariDataParams
 from calamari_ocr.ocr.backends.dataset.datareader.factory import data_reader_from_params
@@ -16,9 +16,9 @@ from calamari_ocr.ocr.backends.dataset.imageprocessors.augmentation import Augme
 from calamari_ocr.ocr.backends.dataset.imageprocessors.preparesample import PrepareSampleProcessor
 
 
-class PrePipeline(MultiProcPythonPipeline):
+class PrePipeline(MultiPreProcPythonPipeline):
     def __init__(self, data: 'DataBase', mode: PipelineMode, params: CalamariPipelineParams, reader=None):
-        super(PythonPipeline, self).__init__(data, mode, params)
+        super(PrePipeline, self).__init__(data, mode, params)
         self.reader = data_reader_from_params(mode, params) if reader is None else reader
         self._has_meta = False
 
@@ -102,7 +102,7 @@ class CalamariPipeline(DirectProcPythonPipeline):
         return filter(lambda x: x is not None, map(proc, self.pre_pipeline.generate_preprocessed_samples()))
 
     def __init__(self, data: 'DataBase', mode: PipelineMode, params: CalamariPipelineParams, pre_pipeline: PrePipeline = None):
-        super(PythonPipeline, self).__init__(data, mode, params)
+        super(CalamariPipeline, self).__init__(data, mode, params, [])
         # core pipeline
         self.pre_pipeline = pre_pipeline if pre_pipeline else PrePipeline(data, mode, params)
 

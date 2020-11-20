@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, NamedTuple, Optional, Tuple, List
+from typing import NamedTuple, Optional, List
 
 from calamari_ocr.ocr.datasets import DataSetType
 from tfaip.base.data.pipeline.definitions import BasePipelineParams, InputTargetSample

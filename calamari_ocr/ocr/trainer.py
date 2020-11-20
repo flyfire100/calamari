@@ -1,4 +1,3 @@
-import copy
 from functools import partial
 from typing import Type
 import numpy as np
@@ -85,7 +84,7 @@ class CalamariTrainer(Trainer):
         """
         super(CalamariTrainer, self).__init__(params, scenario, restore)
         self._params: TrainerParams = params
-        if self._params.checkpoint_save_freq_ < 0:
+        if not isinstance(self._params.checkpoint_save_freq_, str) and self._params.checkpoint_save_freq_ < 0:
             self._params.checkpoint_save_freq_ = self._params.early_stopping_params.frequency
         self._params.warmstart_params.model = checkpoint_path(self._params.warmstart_params.model) if self._params.warmstart_params.model else None
         self.checkpoint = None
