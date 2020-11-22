@@ -1,26 +1,84 @@
 from abc import ABC, abstractmethod
+from dataclasses import field, dataclass
+from typing import List, Optional
 
 import numpy as np
-
-from calamari_ocr.proto import Prediction, CTCDecoderParams
-
-
-def default_ctc_decoder_params():
-    params = CTCDecoderParams()
-    params.word_separator = ' '
-    params.non_word_chars[:] = list("0123456789[]()_.:;!?{}-'\"")
-    params.beam_width =25
-    return params
+from dataclasses_json import dataclass_json, config
+from tfaip.util.enum import StrEnum
 
 
-def create_ctc_decoder(codec, params=default_ctc_decoder_params()):
-    if params.type == CTCDecoderParams.CTC_DEFAULT:
+@dataclass_json
+@dataclass
+class PredictionCharacter:
+    char: str = ''
+    label: int = 0
+    probability: float = 0
+
+    def __post_init__(self):
+        self.probability = float(self.probability)
+        self.label = int(self.label)
+
+
+@dataclass_json
+@dataclass
+class PredictionPosition:
+    chars: List[PredictionCharacter] = field(default_factory=list)
+    local_start: int = 0
+    local_end: int = 0
+    global_start: int = 0
+    global_end: int = 0
+
+
+@dataclass_json
+@dataclass
+class Prediction:
+    id: str = ''
+    sentence: str = ''
+    labels: List[int] = field(default_factory=list)
+    positions: List[PredictionPosition] = field(default_factory=list)
+    logits: Optional[np.ndarray] = field(default=None)
+    total_probability: float = 0
+    avg_char_probability: float = 0
+    is_voted_result: bool = False
+    line_path: str = ''
+
+
+@dataclass_json
+@dataclass
+class Predictions:
+    predictions: List[Prediction] = field(default_factory=list)
+    line_path: str = ''
+
+
+class CTCDecoderType(StrEnum):
+    Default = 'default'
+    TokenPassing = 'token_passing'
+    WordBeamSearch = 'word_beam_search'
+
+
+@dataclass_json
+@dataclass
+class CTCDecoderParams:
+    type: CTCDecoderType = CTCDecoderType.Default
+    blank_index: int = 0
+    min_p_threshold: float = 0
+
+    beam_width = 25
+    non_word_chars: List[str] = field(default_factory=lambda: list("0123456789[]()_.:;!?{}-'\""))
+
+    dictionary: List[str] = field(default_factory=list)
+    word_separator: str = ' '
+
+
+def create_ctc_decoder(codec, params: CTCDecoderParams = None):
+    params = params or CTCDecoderParams()
+    if params.type == CTCDecoderType.Default:
         from .default_ctc_decoder import DefaultCTCDecoder
         return DefaultCTCDecoder(params, codec)
-    elif params.type == CTCDecoderParams.CTC_TOKEN_PASSING:
+    elif params.type == CTCDecoderType.TokenPassing:
         from .token_passing_ctc_decoder import TokenPassingCTCDecoder
         return TokenPassingCTCDecoder(params, codec)
-    elif params.type == CTCDecoderParams.CTC_WORD_BEAM_SEARCH:
+    elif params.type == CTCDecoderType.WordBeamSearch:
         from .ctcwordbeamsearchdecoder import WordBeamSearchCTCDecoder
         return WordBeamSearchCTCDecoder(params, codec)
 
@@ -55,8 +113,7 @@ class CTCDecoder(ABC):
         pred = Prediction()
         pred.labels[:] = self.codec.encode(sentence)
         pred.is_voted_result = False
-        pred.logits.rows, pred.logits.cols = probabilities.shape
-        pred.logits.data[:] = probabilities.reshape([-1])
+        pred.logits = probabilities
         for c, l in zip(sentence, pred.labels):
             pos = pred.positions.add()
             char = pos.chars.add()
@@ -91,22 +148,24 @@ class CTCDecoder(ABC):
         pred = Prediction()
         pred.labels[:] = [c for c, _, _ in sentence]
         pred.is_voted_result = False
-        pred.logits.rows, pred.logits.cols = probabilities.shape
-        pred.logits.data[:] = probabilities.reshape([-1])
+        pred.logits = probabilities
         for c, start, end in sentence:
             p = probabilities[start:end]
             p = np.max(p, axis=0)
 
-            pos = pred.positions.add()
-            pos.local_start = start
-            pos.local_end = end
+            pos = PredictionPosition(
+                local_start=start,
+                local_end=end
+            )
+            pred.positions.append(pos)
 
             for label in reversed(sorted(range(len(p)), key=lambda v: p[v])):
                 if p[label] < threshold and len(pos.chars) > 0:
                     break
                 else:
-                    char = pos.chars.add()
-                    char.label = label
-                    char.probability = p[label]
+                    pos.chars.append(PredictionCharacter(
+                        label=label,
+                        probability=p[label],
+                    ))
 
         return pred

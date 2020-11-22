@@ -1,22 +1,19 @@
 import json
-import time
-from contextlib import ExitStack
+from functools import partial
 
-from tensorflow import keras
+from tfaip.base.data.pipeline.definitions import PipelineMode
 from tfaip.base.device_config import DeviceConfig
 from tfaip.base.predict import Predictor, PredictorParams, MultiModelPredictor
 from tfaip.util.multiprocessing.parallelmap import tqdm_wrapper
 from tqdm import tqdm
 
-import numpy as np
-from typing import Generator, List, Union
+from typing import List, Callable
 
+from calamari_ocr.ocr.backends.dataset import CalamariData
 from calamari_ocr.ocr.backends.dataset.data_types import CalamariPipelineParams
+from calamari_ocr.ocr.backends.dataset.pipeline import CalamariPipeline
 from calamari_ocr.ocr.backends.scenario import CalamariScenario
-from calamari_ocr.ocr.backends.tensorflow_backend.tensorflow_model import CalamariModel
-from calamari_ocr.ocr.text_processing import text_processor_from_proto
 from calamari_ocr.ocr import Codec, Checkpoint
-from calamari_ocr.ocr.backends import create_backend_from_checkpoint
 from calamari_ocr.utils.output_to_input_transformer import OutputToInputTransformer
 
 
@@ -26,7 +23,7 @@ class CalamariPredictorParams(PredictorParams):
 
 
 class PredictionResult:
-    def __init__(self, prediction, codec, text_postproc, out_to_in_trans, data_proc_params, ground_truth=None):
+    def __init__(self, prediction, codec, text_postproc, out_to_in_trans: Callable[[int], int], ground_truth=None):
         """ The output of a networks prediction (PredictionProto) with additional information
 
         It stores all required information for decoding (`codec`) and interpreting the output.
@@ -41,14 +38,13 @@ class PredictionResult:
             text processor to apply to the decodec `prediction` to receive the actual prediction sentence
         """
         self.prediction = prediction
-        self.logits = np.reshape(prediction.logits.data, (prediction.logits.rows, prediction.logits.cols))
+        self.logits = prediction.logits
         self.codec = codec
         self.text_postproc = text_postproc
         self.chars = codec.decode(prediction.labels)
-        self.sentence = self.text_postproc.apply("".join(self.chars))
+        self.sentence = self.text_postproc.apply('', "".join(self.chars), {})[1]
         self.prediction.sentence = self.sentence
         self.out_to_in_trans = out_to_in_trans
-        self.data_proc_params = data_proc_params
         self.ground_truth = ground_truth
 
         self.prediction.avg_char_probability = 0
@@ -57,8 +53,8 @@ class PredictionResult:
             for c in p.chars:
                 c.char = codec.code2char[c.label]
 
-            p.global_start = int(self.out_to_in_trans.local_to_global(p.local_start, self.data_proc_params))
-            p.global_end = int(self.out_to_in_trans.local_to_global(p.local_end, self.data_proc_params))
+            p.global_start = int(self.out_to_in_trans(p.local_start))
+            p.global_end = int(self.out_to_in_trans(p.local_end))
             if len(p.chars) > 0:
                 self.prediction.avg_char_probability += p.chars[0].probability
 
@@ -153,13 +149,15 @@ class CalamariPredictor(Predictor):
                                    ground_truth=p.ground_truth)
 
 
-class MultiPredictor(ExitStack):
+class MultiPredictor:
     def __init__(self, checkpoints: List[str] = None,
+                 voter = None,
                  auto_update_checkpoints=True,
                  ):
         """Predict multiple models to use voting
         """
         super(MultiPredictor, self).__init__()
+        self.voter = voter
         checkpoints = checkpoints or []
         if len(checkpoints) == 0:
             raise Exception("No checkpoints provided.")
@@ -173,14 +171,28 @@ class MultiPredictor(ExitStack):
                                                               model_paths=[ckpt.ckpt_path + '.h5' for ckpt in self.checkpoints],
                                                               )
 
-    def __enter__(self):
-        super(MultiPredictor, self).__enter__()
-        self.enter_context(self.multi_predictor)
-        return self
+    def data(self) -> CalamariData:
+        return self.multi_predictor._data
 
     def predict(self, dataset: CalamariPipelineParams, progress_bar=True):
-        # TODO: compute correct dataset size
-        for inputs, outputs, meta in tqdm_wrapper(self.multi_predictor.predict(dataset), progress_bar=progress_bar):
-            yield outputs
+        # Erase CTC decoder in post proc for voter (->[1:])
+        post_proc = [CalamariData.data_processor_factory().create_sequence(data.params().post_processors_.sample_processors[1:], data.params(), PipelineMode.Prediction) for data in self.multi_predictor.datas]
+        pre_proc = CalamariData.data_processor_factory().create_sequence(self.data().params().pre_processors_.sample_processors, self.data().params(), PipelineMode.Prediction)
+        out_to_in_transformer = OutputToInputTransformer(pre_proc)
+        pipeline: CalamariPipeline = self.data().get_predict_data(dataset)
+        for inputs, outputs, meta in tqdm_wrapper(self.multi_predictor.predict(dataset), progress_bar=progress_bar, total=len(pipeline.reader())):
+            prediction_results = []
+            input_meta = json.loads(inputs['meta'])
+            for i, (prediction, m, data, post_) in enumerate(zip(outputs, meta, self.multi_predictor.datas, post_proc)):
+                prediction.id = "fold_{}".format(i)
+                prediction_results.append(PredictionResult(prediction,
+                                                           codec=data.params().codec,
+                                                           text_postproc=post_,
+                                                           out_to_in_trans=partial(out_to_in_transformer.local_to_global,
+                                                                                   model_factor=inputs['img_len'] / prediction.logits.shape[0],
+                                                                                   data_proc_params=input_meta),
+                                                           ))
+
+            yield inputs, prediction_results, input_meta
 
         self.multi_predictor.benchmark_results.pretty_print()

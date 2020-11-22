@@ -8,20 +8,6 @@ from calamari_ocr.ocr import Codec
 from typing import Any, Generator, List
 
 
-class NetworkPredictionResult:
-    def __init__(self,
-                 softmax: np.array,
-                 output_length: int,
-                 decoded: np.array,
-                 params: Any = None,
-                 ground_truth: np.array = None):
-        self.softmax = softmax
-        self.output_length = output_length
-        self.decoded = decoded
-        self.params = params
-        self.ground_truth = ground_truth
-
-
 class ModelInterface(ABC):
     def __init__(self, network_proto, graph_type, ctc_decoder_params, batch_size, codec: Codec = None,
                  processes=1):
@@ -57,43 +43,6 @@ class ModelInterface(ABC):
               training_callback=TrainingCallback()):
         pass
 
-    def predict_raw(self, x: List[np.array]) -> Generator[NetworkPredictionResult, None, None]:
-        for r in self.predict_raw_batch(*self.zero_padding(x)):
-            yield r
-
-    @abstractmethod
-    def predict_raw_batch(self, x: np.array, len_x: np.array) -> Generator[NetworkPredictionResult, None, None]:
-        pass
-
-    @abstractmethod
-    def predict_dataset(self, dataset) -> Generator[NetworkPredictionResult, None, None]:
-        """ Predict the current data
-
-        Parameters
-        ----------
-        dataset : InputDataset
-            the input dataset
-
-        Returns
-        -------
-        list of Prediction
-
-        See Also
-        --------
-            set_data
-        """
-        pass
-
-    @abstractmethod
-    def load_weights(self, filepath):
-        """ Load the weights stored a the given `filepath`
-
-        Parameters
-        ----------
-        filepath : str
-            File to load
-        """
-        pass
 
     def zero_padding(self, data):
         len_x = [len(x) for x in data]

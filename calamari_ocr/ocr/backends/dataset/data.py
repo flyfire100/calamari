@@ -1,9 +1,9 @@
 import os
-from typing import Callable, Type
+from typing import Type
 
-from tfaip.base.data.pipeline.datapipeline import DataPipeline, SequenceProcessorPipelineParams, SamplePipelineParams
+from tfaip.base.data.pipeline.datapipeline import DataPipeline, SamplePipelineParams
 from tfaip.base.data.pipeline.dataprocessor import DataProcessorFactory
-from tfaip.base.data.pipeline.definitions import PipelineMode, DataProcessorFactoryParams, InputTargetSample
+from tfaip.base.data.pipeline.definitions import PipelineMode, DataProcessorFactoryParams
 from typeguard import typechecked
 import tensorflow as tf
 import logging
@@ -13,6 +13,7 @@ from tfaip.base.data.data import DataBase
 from calamari_ocr.ocr.backends.dataset.imageprocessors.augmentation import AugmentationProcessor
 from calamari_ocr.ocr.backends.dataset.imageprocessors.preparesample import PrepareSampleProcessor
 from calamari_ocr.ocr.backends.dataset.pipeline import CalamariPipeline
+from calamari_ocr.ocr.backends.dataset.postprocessors.ctcdecoder import CTCDecoderProcessor
 from calamari_ocr.ocr.data_processing import ScaleToHeightProcessor, FinalPreparation, DataRangeNormalizer, \
     NoopDataPreprocessor, CenterNormalizer
 from calamari_ocr.ocr.data_processing.default_image_processors import default_image_processors
@@ -53,6 +54,8 @@ class CalamariData(DataBase):
             TextRegularizer,
             AugmentationProcessor,
             PrepareSampleProcessor,
+
+            CTCDecoderProcessor,
         ])
 
     @staticmethod
@@ -65,8 +68,9 @@ class CalamariData(DataBase):
 
     def _input_layer_specs(self):
         return {
-            'img': tf.TensorSpec([None, self._params.line_height_, self._params.input_channels], dtype=tf.float32),
+            'img': tf.TensorSpec([None, self._params.line_height_, self._params.input_channels], dtype=tf.uint8),
             'img_len': tf.TensorSpec([], dtype=tf.int32),
+            'meta': tf.TensorSpec([], dtype=tf.string),
                 }
 
     def _target_layer_specs(self):
@@ -86,23 +90,21 @@ if __name__ == '__main__':
         type=DataSetType.FILE,
         files=[os.path.join(base_path, '*.png')],
         gt_extension=DataSetType.gt_extension(DataSetType.FILE),
-        limit=100,
+        limit=1000,
     )
 
     params = CalamariDataParams(
         codec=Codec('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:;-?+=_()*{}[]`@#$%^&\'"'),
         downscale_factor_=4,
         line_height_=48,
-        pre_processors_=SequenceProcessorPipelineParams([
-            SamplePipelineParams(
-                run_parallel=True,
-                sample_processors=default_image_processors() +
-                                  default_text_pre_processors() +
-                                  [
-                                      DataProcessorFactoryParams(AugmentationProcessor.__name__, {PipelineMode.Training}),
-                                      DataProcessorFactoryParams(PrepareSampleProcessor.__name__),
-                                  ],
-            )]
+        pre_processors_=SamplePipelineParams(
+            run_parallel=True,
+            sample_processors=default_image_processors() +
+                              default_text_pre_processors() +
+                              [
+                                  DataProcessorFactoryParams(AugmentationProcessor.__name__, {PipelineMode.Training}),
+                                  DataProcessorFactoryParams(PrepareSampleProcessor.__name__),
+                              ],
         ),
         data_aug_params=DataAugmentationAmount(amount=2),
         train=fdr,
@@ -114,11 +116,12 @@ if __name__ == '__main__':
 
     data = CalamariData(params)
     pipeline: CalamariPipeline = data.get_train_data()
-    with pipeline as rd:
-        for i, d in enumerate(rd.generate_input_samples()):
-            print(i)
-        for i, d in enumerate(rd.input_dataset()):
-            print(i)
+    if False:
+        with pipeline as rd:
+            for i, d in enumerate(rd.generate_input_samples()):
+                print(i)
+            for i, d in enumerate(rd.input_dataset()):
+                print(i)
 
     raw_pipeline = pipeline.as_preloaded()
     with raw_pipeline as rd:

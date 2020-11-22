@@ -112,13 +112,14 @@ class CalamariTrainer(Trainer):
 
         if data.params().val:
             val_pipeline = data.get_val_data()
-            if len(val_pipeline) == 0:
-                raise Exception("Validation dataset is empty. Provide valid validation data for early stopping.")
+            # TODO: len
+            # if len(val_pipeline) == 0:
+            #    raise Exception("Validation dataset is empty. Provide valid validation data for early stopping.")
         else:
             val_pipeline = None
 
         if self._params.preload_training:
-            # preload after codec was created
+            # preload before codec was created (not all processors can be applied, yet)
             data.preload(progress_bar=self._params.progress_bar)
             train_pipeline = data.get_train_data()
             if val_pipeline:
@@ -169,6 +170,10 @@ class CalamariTrainer(Trainer):
         model_params.classes = codec.size()
         data.params().codec = codec
         print("CODEC: {}".format(codec.charset))
+
+        if self._params.preload_training:
+            # preload after codec was created
+            data.preload(progress_bar=self._params.progress_bar)
 
         super(CalamariTrainer, self).train(
             callbacks=callbacks,

@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 
 
 class PrepareSampleProcessor(DataProcessor):
+    def supports_preload(self):
+        return self.params.codec is not None
+
     def apply(self, inputs, targets, meta: dict):
         codec = self.params.codec
         # final preparation
@@ -28,4 +31,4 @@ class PrepareSampleProcessor(DataProcessor):
             logger.warning(f"Skipping line with longer outputs than inputs (id={meta['id']})")
             return None, None
 
-        return {'img': line / 255.0, 'img_len': len(line)}, {'gt': text, 'gt_len': len(text)}
+        return {'img': line.astype(np.uint8), 'img_len': len(line), 'meta': json.dumps(meta)}, {'gt': text, 'gt_len': len(text)}

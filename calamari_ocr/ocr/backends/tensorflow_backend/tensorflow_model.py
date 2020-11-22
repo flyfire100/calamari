@@ -9,7 +9,6 @@ from tfaip.base.model import ModelBase, GraphBase, ModelBaseParams
 from tfaip.util.typing import AnyNumpy
 
 from calamari_ocr.ocr.backends.dataset import CalamariData
-from calamari_ocr.ocr.backends.model_interface import NetworkPredictionResult
 from calamari_ocr.proto.params import ModelParams, LayerType, LayerParams
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
@@ -123,7 +122,7 @@ class CalamariGraph(GraphBase):
 
     def call(self, inputs, **kwargs):
         params: ModelParams = self._params
-        input_data = inputs['img']
+        input_data = tf.cast(inputs['img'], tf.float32) / 255.0
         input_sequence_length = K.flatten(inputs['img_len'])
         shape = input_sequence_length, -1
 
@@ -258,7 +257,7 @@ class CalamariModel(ModelBase):
                  "\n  TRUE: '{}{}{}'".format(lr[bidi.get_base_level(gt_sentence)], gt_sentence, "\u202C"))
 
 
-    def predict_raw_batch(self, x: np.array, len_x: np.array) -> Generator[NetworkPredictionResult, None, None]:
+    def predict_raw_batch(self, x: np.array, len_x: np.array):
         out = self.model.predict_on_batch(
             [tf.convert_to_tensor(x / 255.0, dtype=tf.float32),
              tf.convert_to_tensor(len_x, dtype=tf.int32),
@@ -274,7 +273,7 @@ class CalamariModel(ModelBase):
                                            )
             yield pred
 
-    def predict_dataset(self, dataset) -> Generator[NetworkPredictionResult, None, None]:
+    def predict_dataset(self, dataset):
         dataset_gen = self.create_dataset_inputs(dataset, self.batch_size, self.network_proto.features, self.network_proto.backend.shuffle_buffer_size,
                                                  mode='test')
         out = sum([list(zip(self.predict_raw_batch(d[0]['input_data'], d[0]['input_sequence_length']), d[0]['input_data_params'])) for d in dataset_gen], [])

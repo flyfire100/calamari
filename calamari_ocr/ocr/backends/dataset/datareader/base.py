@@ -38,6 +38,9 @@ class DataReader(ABC):
         """
         return len(self._samples)
 
+    def sample_by_id(self, id_) -> dict:
+        return next(sample for sample in self._samples if sample['id'] == id_)
+
     def samples(self):
         """ List of all samples
 

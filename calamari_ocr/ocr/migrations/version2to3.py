@@ -22,42 +22,41 @@ def update_model(params: dict, path: str):
     model = keras.models.load_model(path + '.h5', compile=False)
     pred_model_inputs = model.inputs[1:3]
 
-    class WrappedOutputLayer(keras.layers.Layer):
-        def call(self, inputs, **kwargs):
-            logits, output_len = inputs
-            outputs = {
-                'softmax': tf.nn.softmax(logits, axis=-1),
-                'out_len': output_len,
-            }
-            outputs['blank_last_logits'] = tf.roll(logits, shift=-1, axis=-1)
-            outputs['blank_last_softmax'] = tf.nn.softmax(outputs['blank_last_logits'])
+    def wrap(inputs):
+        logits, output_len = inputs
+        outputs = {
+            'blank_last_logits': logits,
+            'out_len': output_len,
+            'logits': tf.roll(logits, shift=1, axis=-1),
+        }
+        outputs['blank_last_softmax'] = tf.nn.softmax(outputs['blank_last_logits'], axis=-1),
+        outputs['softmax'] = tf.nn.softmax(outputs['logits'])
 
-            greedy_decoded = \
-                ctc_ops.ctc_greedy_decoder(inputs=tf.transpose(outputs['blank_last_logits'], perm=[1, 0, 2]),
-                                           sequence_length=tf.cast(K.flatten(outputs['out_len']),
-                                                                   'int32'))[0][0]
-            greedy_decoded = tf.cast(greedy_decoded, 'int32', 'greedy_int32')
-            outputs['decoded'] = tf.sparse.to_dense(greedy_decoded,
-                                                    default_value=tf.constant(-1, dtype=greedy_decoded.dtype)) + 1
-            return outputs
+        greedy_decoded = \
+            ctc_ops.ctc_greedy_decoder(inputs=tf.transpose(outputs['blank_last_logits'], perm=[1, 0, 2]),
+                                       sequence_length=tf.cast(K.flatten(outputs['out_len']),
+                                                               'int32'))[0][0]
+        greedy_decoded = tf.cast(greedy_decoded, 'int32', 'greedy_int32')
+        outputs['decoded'] = tf.sparse.to_dense(greedy_decoded,
+                                                default_value=tf.constant(-1, dtype=greedy_decoded.dtype)) + 1
+        return outputs
 
     outputs = [l.input for l in model.layers if l.name == 'softmax'][0], model.layers[-1].input[2]
     pred_model = keras.models.Model(inputs=pred_model_inputs, outputs=outputs)
     # wrap with correct input layers
-    img_input = keras.Input(shape=[None, scenario_params.data_params.line_height_, scenario_params.data_params.input_channels], dtype=tf.float32)
+    img_input = keras.Input(shape=[None, scenario_params.data_params.line_height_, scenario_params.data_params.input_channels], dtype=tf.uint8)
     img_len = keras.Input(shape=[], dtype=tf.int32)
     final_model_inputs = {'img': img_input, 'img_len': img_len}
-    output_wrapper = WrappedOutputLayer()
-    final_model_outputs = output_wrapper(pred_model((final_model_inputs['img'], final_model_inputs['img_len'])))
+    final_model_outputs = wrap(pred_model((tf.cast(final_model_inputs['img'], tf.float32) / 255.0, final_model_inputs['img_len'])))
 
     pred_model = keras.models.Model(inputs=final_model_inputs, outputs=final_model_outputs)
-    logger.info(f"Writing converted model at {path}.h5.tmp")
-    pred_model.save(path + '.h5.tmp', include_optimizer=False)
-    logger.info(f"Attempting to load converted model at {path}.h5.tmp")
-    keras.models.load_model(path + '.h5.tmp')
+    logger.info(f"Writing converted model at {path}.tmp.h5")
+    pred_model.save(path + '.tmp.h5', include_optimizer=False)
+    logger.info(f"Attempting to load converted model at {path}.tmp.h5")
+    keras.models.load_model(path + '.tmp.h5')
     logger.info(f"Replacing old model at {path}.h5")
     os.remove(path + '.h5')
-    os.rename(path + '.h5.tmp', path + '.h5')
+    os.rename(path + '.tmp.h5', path + '.h5')
     logger.info(f"New model successfully written")
 
 
@@ -188,8 +187,10 @@ def migrate(d: dict):
     converted_pre_processors = \
         convert_image_processor(data_preprocessor) + \
         convert_text_processor(text_preprocessor)
+    converted_pre_processors.append({"name": "PrepareSampleProcessor"})
 
     converted_post_processors = convert_text_processor(text_postprocessor)
+    converted_post_processors.insert(0, {'name': "CTCDecoderProcessor"})
 
     # migrate to dict based on tfaip
     return {
@@ -218,8 +219,8 @@ def migrate(d: dict):
                 "input_channels": model.get('channels', 1),
                 "line_height_": model.get('lineHeight'),
                 "codec": convert_codec(codec),
-                "pre_processors_": converted_pre_processors,
-                "post_processors_": converted_post_processors,
+                "pre_processors_": {'run_parallel': True, 'sample_processors': converted_pre_processors},
+                "post_processors_": {'run_parallel': True, 'sample_processors': converted_post_processors},
                 "scenario_module_": "calamari_ocr.ocr.backends.scenario",
                 "tfaip_commit_hash_": "b234c8ce1428b33d6830a7a4a3d7bc13fedd69ba",
                 "tfaip_version_": "1.0.0"

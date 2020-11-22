@@ -1,5 +1,6 @@
 import operator
 
+from calamari_ocr.ocr.backends.ctc_decoder.ctc_decoder import PredictionPosition, PredictionCharacter
 from calamari_ocr.ocr.voting.voter import Voter
 from calamari_ocr.ocr.text_processing.text_synchronizer import synchronize
 
@@ -118,11 +119,15 @@ class ConfidenceVoter(Voter):
         sentence = ""
 
         for voted_pos in voted:
-            pos = prediction_out.positions.add()
+            pos = PredictionPosition()
+            prediction_out.positions.append(pos)
             for character in voted_pos:
-                char = pos.chars.add()
-                char.char = character.char
-                char.probability = character.p
+                pos.chars.append(
+                    PredictionCharacter(
+                        character.char,
+                        character.p,
+                    )
+                )
 
             if len(voted_pos) > 0:
                 pos.global_start = voted_pos[0].start

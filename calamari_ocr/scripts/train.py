@@ -2,9 +2,9 @@ import argparse
 import os
 import json
 
-from tfaip.base.data.pipeline.datapipeline import SequenceProcessorPipelineParams, SamplePipelineParams
+from tfaip.base.data.pipeline.datapipeline import SamplePipelineParams
 from tfaip.base.data.pipeline.definitions import DataProcessorFactoryParams, inputs_pipeline_modes, \
-    targets_pipeline_modes, PipelineMode, all_pipeline_modes
+    targets_pipeline_modes, PipelineMode
 from tfaip.util.logging import setup_log
 
 from calamari_ocr.ocr.augmentation.dataaugmentationparams import DataAugmentationAmount
@@ -16,14 +16,12 @@ from calamari_ocr.ocr.backends.dataset.datareader.factory import FileDataReaderA
 from calamari_ocr.ocr.backends.dataset.imageprocessors.augmentation import AugmentationProcessor
 from calamari_ocr.ocr.backends.dataset.imageprocessors.preparesample import PrepareSampleProcessor
 from calamari_ocr.ocr.backends.scenario import CalamariScenario
-from calamari_ocr.ocr.data_processing import DataRangeNormalizer, CenterNormalizer, FinalPreparation
 from calamari_ocr.ocr.data_processing.data_preprocessor import ImageProcessor
 from calamari_ocr.ocr.data_processing.default_image_processors import default_image_processors
 from calamari_ocr.ocr.text_processing.text_regularizer import default_text_regularizer_replacements
 from calamari_ocr.proto.converters import params_from_definition_string
 from calamari_ocr.utils import glob_all
 from calamari_ocr.ocr.datasets import DataSetType
-from calamari_ocr.ocr.augmentation.data_augmenter import SimpleDataAugmenter
 from calamari_ocr.ocr.text_processing import \
     TextNormalizer, \
     TextRegularizer, StripTextProcessor, BidiTextProcessor
@@ -255,16 +253,16 @@ def run(args):
     else:
         data_params.val = None
 
-    data_params.pre_processors_ = SequenceProcessorPipelineParams([SamplePipelineParams(run_parallel=True)])
-    data_params.post_processors_ = SequenceProcessorPipelineParams()
+    data_params.pre_processors_ = SamplePipelineParams(run_parallel=True)
+    data_params.post_processors_ = SamplePipelineParams(run_parallel=True)
     for p in args.data_preprocessing:
         p_p = CalamariData.data_processor_factory().processors[p].default_params()
         if 'pad' in p_p:
             p_p['pad'] = args.pad
-        data_params.pre_processors_.sample_pipelines[0].sample_processors.append(DataProcessorFactoryParams(p, inputs_pipeline_modes, p_p))
+        data_params.pre_processors_.sample_processors.append(DataProcessorFactoryParams(p, inputs_pipeline_modes, p_p))
 
     # Text pre processing (reading)
-    data_params.pre_processors_.sample_pipelines[0].sample_processors.extend(
+    data_params.pre_processors_.sample_processors.extend(
         [
             DataProcessorFactoryParams(TextNormalizer.__name__, targets_pipeline_modes, {'unicode_normalization': args.text_normalization}),
             DataProcessorFactoryParams(TextRegularizer.__name__, targets_pipeline_modes, {'replacements': default_text_regularizer_replacements(args.text_regularization)}),
@@ -272,33 +270,26 @@ def run(args):
         ])
 
     # Text post processing (prediction)
-    data_params.post_processors_.sample_pipelines.append(SamplePipelineParams(
-        run_parallel=False,
-        sample_processors=[
+    data_params.post_processors_.sample_processors.extend(
+        [
             DataProcessorFactoryParams(TextNormalizer.__name__, targets_pipeline_modes,
                                        {'unicode_normalization': args.text_normalization}),
             DataProcessorFactoryParams(TextRegularizer.__name__, targets_pipeline_modes,
                                        {'replacements': default_text_regularizer_replacements(args.text_regularization)}),
             DataProcessorFactoryParams(StripTextProcessor.__name__, targets_pipeline_modes)
-        ]))
+        ])
     if args.bidi_dir:
-        data_params.pre_processors_.sample_pipelines[0].sample_processors.append(
+        data_params.pre_processors_.sample_processors.append(
             DataProcessorFactoryParams(BidiTextProcessor.__name__, targets_pipeline_modes, {'bidi_direction': args.bidi_dir})
         )
-        data_params.post_processors_.append(
+        data_params.post_processors_.sample_processors.append(
             DataProcessorFactoryParams(BidiTextProcessor.__name__, targets_pipeline_modes, {'bidi_direction': args.bidi_dir})
         )
 
-    data_params.pre_processors_.sample_pipelines[0].sample_processors.append(
-        DataProcessorFactoryParams(AugmentationProcessor.__name__, {PipelineMode.Training}, {'augmenter_type': 'simple'})
-    )
-    data_params.pre_processors_.sample_pipelines.append(SamplePipelineParams(
-        run_parallel=False,
-        sample_processors=[
-            DataProcessorFactoryParams(PrepareSampleProcessor.__name__)
-        ],
-        can_be_preloaded=False,
-    ))
+    data_params.pre_processors_.sample_processors.extend([
+        DataProcessorFactoryParams(AugmentationProcessor.__name__, {PipelineMode.Training}, {'augmenter_type': 'simple'}),
+        DataProcessorFactoryParams(PrepareSampleProcessor.__name__),
+    ])
 
     data_params.data_aug_params = DataAugmentationAmount.from_factor(args.n_augmentations)
     data_params.line_height_ = args.line_height

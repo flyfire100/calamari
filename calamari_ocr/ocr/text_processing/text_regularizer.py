@@ -56,9 +56,9 @@ def parse_groups(string_list):
 @dataclass_json
 @dataclass
 class Replacement:
-    regex: bool
-    old: str
-    new: str
+    old: str = ''
+    new: str = ''
+    regex: bool = False
 
 
 def default_text_regularizer_replacements(groups=["simple"]) -> List[Replacement]:
@@ -177,7 +177,7 @@ class TextRegularizer(TextProcessor):
 
     def __init__(self, replacements: List[Replacement], **kwargs):
         super().__init__(**kwargs)
-        self.replacements = replacements
+        self.replacements = [(r if isinstance(r, Replacement) else Replacement.from_dict(r)) for r in replacements]
 
     def _apply_single(self, txt, meta):
         for replacement in self.replacements:
